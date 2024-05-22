@@ -2,15 +2,20 @@ import logging
 import json
 from flask import Blueprint, request, jsonify, current_app
 
+from utils.whatsapp_utils import (
+    process_whatsapp_message,
+    is_valid_whatsapp_message,
+)
+
 webhook_blueprint = Blueprint("webhook", __name__)
 
 def handle_message():
     """
-    handle incomming webhook events from the ehatsApp API.
+    Handle incoming webhook events from the WhatsApp API.
 
-    This function processes incomming whatsApp message and other events, 
-    such as delivery statuses. if the event is a valid message, it gets 
-    processed. if the incomming payload is not a recognized WhatsApp event,
+    This function processes incoming WhatsApp messages and other events,
+    such as delivery statuses. If the event is a valid message, it gets
+    processed. If the incoming payload is not a recognized WhatsApp event,
     an error is returned.
 
     Every message send will trigger 4 HTTP requests to your webhook: message, sent, delivered, read.
@@ -18,15 +23,32 @@ def handle_message():
     Returns:
         response: A tuple containing a JSON response and an HTTP status code.
     """
-
     body = request.get_json()
-    # logging.info(f"Webhook received: {body}")
+    # logging.info(f"request body: {body}")
 
-    # Check if it's a WHatsApp status update
-    if(body.get("entry"),[{}][0].get("changes", [{}][0]).get("value", {}).get("statuses")):
+    # Check if it's a WhatsApp status update
+    if (
+        body.get("entry", [{}])[0]
+        .get("changes", [{}])[0]
+        .get("value", {})
+        .get("statuses")
+    ):
         logging.info("Received a WhatsApp status update.")
         return jsonify({"status": "ok"}), 200
-    
+
+    try:
+        if is_valid_whatsapp_message(body):
+            process_whatsapp_message(body)
+            return jsonify({"status": "ok"}), 200
+        else:
+            # if the request is not a WhatsApp API event, return an error
+            return (
+                jsonify({"status": "error", "message": "Not a WhatsApp API event"}),
+                404,
+            )
+    except json.JSONDecodeError:
+        logging.error("Failed to decode JSON")
+        return jsonify({"status": "error", "message": "Invalid JSON provided"}), 400
     
 
 def verify():
@@ -54,4 +76,8 @@ def verify():
 @webhook_blueprint.route("/webhook", methods=["GET"])
 def webhook_get():
     return verify()
+
+@webhook_blueprint.route("/webhook", methods=["POST"])
+def webhook_post():
+    return handle_message()
     
